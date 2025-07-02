@@ -1,0 +1,12 @@
+{
+  "Soc": "MAX32657",
+  "Package": "WLP",
+  "WorkspacePluginId": "com.analog.zephyr41.workspace.blinky",
+  "WorkspacePluginVersion": "1.0.0",
+  "WorkspaceName": "ble_led",
+  "Location": "/home/ahmed/cfs/1.1.0",
+  "Board": "EvKit_V1",
+  "Projects": [],
+  "DataModelVersion": "1.1.44",
+  "DataModelSchemaVersion": "1.1.0"
+}

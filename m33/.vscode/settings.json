@@ -1,0 +1,13 @@
+{
+  "cfs.configureWorkspace": "Yes",
+  "cfs.project.board": "max32657evkit/max32657",
+  "cfs.programFile": "${workspaceFolder}/build/zephyr/zephyr.elf",
+  "cfs.debugPath": "${workspaceFolder}/build/zephyr",
+  "cfs.cmsis.svdFile": "${config:cfs.sdk.path}/SDK/zephyr/modules/hal/adi/MAX/Libraries/CMSIS/Device/Maxim/MAX32657/Include/max32657.svd",
+  "cfs.cmsis.pack": "None",
+  "cfs.openocd.interface": "interface/cmsis-dap.cfg",
+  "cfs.openocd.target": "target/max32657.cfg",
+  "cfs.project.target": "MAX32657",
+  "cfs.jlink.device": "MAX32657",
+  "C_Cpp.errorSquiggles": "disabled"
+}

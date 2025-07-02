@@ -1,0 +1,178 @@
+/**
+ * Configuration for MAX32657-WLP.
+ *
+ * This file was generated using Analog Devices CodeFusion Studio.
+ * https://github.com/analogdevicesinc/codefusion-studio
+ *
+ * Generated at: 2025-07-02T17:22:50.649Z 
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2025 Analog Devices, Inc.
+ */
+
+/* Memory Configuration
+*/
+
+/ {
+	chosen {
+		zephyr,code-partition = &slot0_partition;
+		zephyr,flash = &flash0;
+		zephyr,sram = &secure_ram;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+ 		#size-cells = <1>;
+ 		ranges;
+
+		secure_ram: partition@30000000 {
+			/* This partition is chosen for sram. */
+			label = "secure-memory";
+			reg = <0x30000000 DT_SIZE_K(256)>;
+		};
+	};
+};
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_partition: partition@0 {
+			/* This partition is chosen for code-partition. */
+			label = "image-0";
+			reg = <0x0 DT_SIZE_K(690)>;
+		};
+		storage_partition: partition@f0000 {
+			/* This partition is not chosen. */
+			label = "storage";
+			reg = <0xf0000 DT_SIZE_K(64)>;
+		};
+	};
+};
+
+
+/* GPIO Configuration
+*/
+
+/ {
+	buttons {
+		pb1: pb1 {
+			gpios = <&gpio0 12 (GPIO_ACTIVE_LOW | MAX32_GPIO_VSEL_VDDIO | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+
+	leds {
+		led1: led_1 {
+			/* This pin is used for Blink LED. */
+			gpios = <&gpio0 13 (GPIO_ACTIVE_HIGH | MAX32_GPIO_VSEL_VDDIO | MAX32_GPIO_DRV_STRENGTH_0)>;
+		};
+	};
+
+	aliases {
+		led0 = &led1;
+	};
+};
+
+/* Peripheral Configuration
+*/
+
+/ {
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,bt-c2h-uart = &uart0;
+	};
+};
+
+&dma1 {
+	status = "disabled";
+};
+
+&i3c0 {
+	status = "disabled";
+};
+
+&rtc_counter {
+	status = "disabled";
+};
+
+&spi0 {
+	status = "disabled";
+};
+
+&timer0 {
+	status = "disabled";
+};
+
+&timer1 {
+	status = "disabled";
+};
+
+&timer2 {
+	status = "disabled";
+};
+
+&timer3 {
+	status = "disabled";
+};
+
+&timer4 {
+	status = "disabled";
+};
+
+&timer5 {
+	status = "disabled";
+};
+
+&trng {
+	status = "disabled";
+};
+
+&uart0_tx_p0_9 {
+	power-source = <MAX32_VSEL_VDDIO>;
+};
+
+&uart0_rx_p0_5 {
+	power-source = <MAX32_VSEL_VDDIO>;
+	/* Weak pull-up is not supported here in Zephyr. Using strong pull-up instead. */
+	bias-pull-up;
+};
+
+&uart0 {
+	pinctrl-0 = <&uart0_tx_p0_9 &uart0_rx_p0_5>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	parity = "none";
+	stop-bits = "1";
+	data-bits = <8>;
+	status = "okay";
+};
+
+&wdt0 {
+	status = "disabled";
+};
+
+&wut0 {
+	status = "disabled";
+};
+
+&wut1 {
+	status = "disabled";
+};
+
+/* Clock Configuration and Initialization
+*/
+
+/* System clock configuration */
+&gcr {
+	clocks = <&clk_ipo>;
+	sysclk-prescaler = <1>;
+};
+
+&clk_ipo {
+	status = "okay";
+};
+
