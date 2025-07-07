@@ -13,7 +13,8 @@
     "terminal.integrated.defaultProfile.osx": "CFS Terminal",
     "terminal.integrated.defaultProfile.linux": "CFS Terminal",
     "files.associations": {
-      "gpio.h": "c"
+      "gpio.h": "c",
+      "uuid.h": "c"
     }
   }
 }
