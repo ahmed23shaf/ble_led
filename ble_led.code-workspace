@@ -14,7 +14,11 @@
     "terminal.integrated.defaultProfile.linux": "CFS Terminal",
     "files.associations": {
       "gpio.h": "c",
-      "uuid.h": "c"
+      "uuid.h": "c",
+      "conn.h": "c",
+      "addr.h": "c",
+      "gap.h": "c",
+      "gatt.h": "c"
     }
   }
 }

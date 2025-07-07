@@ -1,105 +1,82 @@
+#include <zephyr/kernel.h>
 #include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/conn.h>
 #include <zephyr/drivers/gpio.h>
 
 #define LED0_NODE DT_ALIAS(led0)
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 
-bool led_state = false;
+// #define BUTTON_NODE DT_ALIAS(pb)
+// static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET_OR(BUTTON_NODE, gpios, {0});
 
-// BT STUFF ----------------------------------------------------------------------------------------
+#define RUN_LED_BLINK_INTERVAL 1000
 
-// Service and Characteristics UUIDs
-#define LED_SERVICE_UUID_VAL \
-  BT_UUID_128_ENCODE(0xf7547938, 0x68ba, 0x11ec, 0x90d6, 0x0242ac120003)
+struct bt_conn *my_conn = NULL;
+static struct k_work adv_work;
 
-static struct bt_uuid_128 led_svc_uuid =
-	BT_UUID_INIT_128(LED_SERVICE_UUID_VAL);
+static const struct bt_le_adv_param *adv_param = BT_LE_ADV_PARAM(
+	(BT_LE_ADV_OPT_CONN | BT_LE_ADV_OPT_USE_IDENTITY), /* Connectable advertising and use identity address */
+	BT_GAP_ADV_FAST_INT_MIN_1, /* 0x30 units, 48 units, 30ms */
+	BT_GAP_ADV_FAST_INT_MAX_1, /* 0x60 units, 96 units, 60ms */
+	NULL); /* Set to NULL for undirected advertising */
 
-static struct bt_uuid_128 led_state_char_uuid = BT_UUID_INIT_128(
-    BT_UUID_128_ENCODE(0x9c85a726, 0xb7f1, 0x11ec, 0xb909, 0x0242ac120002));
-
-// Advertisement Data
 static const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA_BYTES(BT_DATA_UUID128_ALL, LED_SERVICE_UUID_VAL),
-	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1)
+	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_128_ENCODE(0x12345678, 0x9abc, 0xdef0, 0x1234, 0x56789abcdef0)),
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME)-1)
 };
 
-// GATT Access Callbacks
-
-static ssize_t read_led_state(struct bt_conn *conn,
-                              const struct bt_gatt_attr *attr, void *buf,
-                              uint16_t len, uint16_t offset) {
-  const uint8_t *value = attr->user_data;
-  printk("Value 0x%x read.\n", *value);
-  return bt_gatt_attr_read(conn, attr, buf, len, offset, value, sizeof(*value));
-}
-
-static ssize_t write_led_state(struct bt_conn *conn,
-                               const struct bt_gatt_attr *attr, const void *buf,
-                               uint16_t len, uint16_t offset, uint8_t flags) {
-  uint8_t *value = attr->user_data;
-  *value = *((uint8_t *)buf);
-  printk("Value 0x%x written.\n", *value);
-
-  printk("Current LED state %s - turning LED %s\n", led_state ? "off" : "on",
-         led_state ? "on" : "off");
-  gpio_pin_set_dt(&led, led_state);
-  return len;
-}
-
-// Attribute Table
-BT_GATT_SERVICE_DEFINE(
-    led_svc, BT_GATT_PRIMARY_SERVICE(&led_svc_uuid),
-    BT_GATT_CHARACTERISTIC(&led_state_char_uuid.uuid,
-                           BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
-                           BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                           read_led_state, write_led_state, &led_state), );
-
-static void connected(struct bt_conn *conn, uint8_t err)
+static void adv_work_handler(struct k_work *work)
 {
-	if (err)
-		printk("Connection failed (err 0x%02x)\n", err);
-	else
-		printk("Connected\n");
-}
+	int err = bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), NULL, 0);
 
-static void disconnected(struct bt_conn *conn, uint8_t reason)
-{
-	printk("Disconnected (reason 0x%02x)\n", reason);
-}
-
-BT_CONN_CB_DEFINE(conn_callbacks) = {
-	.connected = connected,
-	.disconnected = disconnected,
-};
-
-static int init_bt(void)
-{
-	int err; 
-
-	// initialize BLE
-	err = bt_enable(NULL);
-	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
-		return err;
-	}
-	printk("Bluetooth initialized\n");
-
-	// start advertising
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
-		return err;
+		return;
 	}
 
 	printk("Advertising successfully started\n");
-	return 0;
 }
 
-// BT STUFF END ------------------------------------------------------------------------------------
+static void advertising_start(void)
+{
+	k_work_submit(&adv_work);
+}
+
+void on_connected(struct bt_conn *conn, uint8_t err)
+{
+    if (err) {
+        printk("Connection error %d", err);
+        return;
+    }
+    printk("Connected\n");
+    my_conn = bt_conn_ref(conn);
+
+    gpio_pin_set_dt(&led, 1);
+}
+
+void on_disconnected(struct bt_conn *conn, uint8_t reason)
+{
+    printk("Disconnected. Reason %d\n", reason);
+    bt_conn_unref(my_conn);
+
+	gpio_pin_set_dt(&led, 0);
+}
+
+void on_recycled(void)
+{
+    advertising_start();
+}
+
+struct bt_conn_cb connection_callbacks = {
+    .connected              = on_connected,
+    .disconnected           = on_disconnected,
+    .recycled               = on_recycled,
+};
 
 static int init_led(void)
 {
@@ -117,11 +94,53 @@ static int init_led(void)
 	return 0;
 }
 
+static int init_bt(void)
+{
+	int err = 0;
+
+	err = bt_conn_cb_register(&connection_callbacks);
+	if (err) {
+	printk("Connection callback register failed (err %d)\n", err);
+	}
+
+	err = bt_enable(NULL);
+	if (err) {
+		printk("Bluetooth init failed (err %d)\n", err);
+		return -1;
+	}
+
+	printk("Bluetooth initialized\n");
+	k_work_init(&adv_work, adv_work_handler);
+	advertising_start();
+
+	return err;
+}
+
 int main(void)
 {
-	if (init_led())	return -1;
-	if (init_bt())	return -1;
+	int err;
 
-	while (1) { k_sleep(K_SECONDS(1)); }
-	return 0;
+	printk("Starting Lesson 3 - Exercise 1\n");
+
+	err = init_led();
+	if (err) {
+		printk("LEDs init failed (err %d)\n", err);
+		return -1;
+	}
+
+	err = init_bt();
+	if (err) {
+		printk("BT init failed (err %d)\n", err);
+		return -1;
+	}
+
+	while (1)
+	{
+		struct bt_conn_info info;
+		bt_conn_get_info(my_conn, &info);
+		if (info.state != BT_CONN_STATE_CONNECTED)
+			gpio_pin_toggle_dt(&led);
+
+		k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
+	}
 }
