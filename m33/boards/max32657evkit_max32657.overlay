@@ -57,12 +57,6 @@
 */
 
 / {
-	buttons {
-		pb1: pb1 {
-			gpios = <&gpio0 12 (GPIO_ACTIVE_LOW | MAX32_GPIO_VSEL_VDDIO | GPIO_PULL_UP)>;
-			zephyr,code = <INPUT_KEY_0>;
-		};
-	};
 	leds {
 		led1: led_1 {
 			/* This pin is used for Blink LED. */
@@ -71,7 +65,6 @@
 	};
 
 	aliases {
-		pb = &pb1;
 		led0 = &led1;
 	};
 };
