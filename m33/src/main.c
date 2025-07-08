@@ -15,16 +15,25 @@
 // There is a service, 'led_svc' which has 
 // a characteristic contained inside of it called 'led_state'
 // within this characteristic, there will be an attribute that holds a value (0 or 1)
+// There's also a 'counter' characteristic which exists to demonstrate the notify
+// mechanism (server-side) operation of the GATT protocol. This counter increments on
+// every software-timer based periodic interrupt. 
 //
 // led_svc (Service)
 // └── led_state (Characteristic)
 //     └── Value Attribute (0 or 1)
-//
+// └── counter
+//     └── count (0->1->2,...)
 //
 
 LOG_MODULE_REGISTER(main_,LOG_LEVEL_DBG);
 
-uint8_t led_state;
+uint16_t counter = 0;
+bool	 notify_en = 0;
+uint8_t  led_state;
+
+#define TMR_PERIOD 			   K_MSEC(1000)
+#define RUN_LED_BLINK_INTERVAL K_MSEC(1000)
 
 #define LED0_NODE DT_ALIAS(led0)
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
@@ -35,10 +44,12 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 #define LED_STATE_UUID \
 	BT_UUID_128_ENCODE(0x12345678, 0x0001, 0xdef0, 0x1234, 0x56789abcdef0)
 
-static struct bt_uuid_128 led_svc_uuid = BT_UUID_INIT_128(LED_SVC_UUID);
-static struct bt_uuid_128 led_state_char_uuid = BT_UUID_INIT_128(LED_STATE_UUID);
+#define COUNTER_UUID \
+	BT_UUID_128_ENCODE(0x12345678, 0x0002, 0xdef0, 0x1234, 0x56789abcdef0)
 
-#define RUN_LED_BLINK_INTERVAL 1000
+static struct bt_uuid_128 led_svc_uuid 	 	  = BT_UUID_INIT_128(LED_SVC_UUID);
+static struct bt_uuid_128 led_state_char_uuid = BT_UUID_INIT_128(LED_STATE_UUID);
+static struct bt_uuid_128 counter_char_uuid   = BT_UUID_INIT_128(COUNTER_UUID);
 
 struct bt_conn *my_conn = NULL;
 static struct k_work adv_work;
@@ -55,6 +66,15 @@ static const struct bt_data ad[] = {
 	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME)-1)
 };
 
+static ssize_t read_count(struct bt_conn *conn,
+						  const struct bt_gatt_attr *attr, void *buf,
+						  uint16_t len, uint16_t offset)
+{
+	const uint8_t *val = attr->user_data;
+	LOG_INF("%s: Value 0x%x read.\n", __func__, *val);
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, val, sizeof(*val));/*  */
+}
+
 // conn 	Represents the BLE connection.
 // attr 	Represents the attribute (the low level representation of a characteristic).
 // buf 		A buffer into which you can write the actual value the client will receives.
@@ -65,7 +85,7 @@ static ssize_t read_led(struct bt_conn *conn,
 						uint16_t len, uint16_t offset)
 {
 	const uint8_t *val = attr->user_data;
-	LOG_INF("Value 0x%x read.\n", *val);
+	LOG_INF("%s: Value 0x%x read.\n", __func__, *val);
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, val, sizeof(*val));
 }
 
@@ -88,6 +108,11 @@ static ssize_t write_led(struct bt_conn *conn,
 
 	gpio_pin_set_dt(&led, led_state);
 	return len;
+}
+
+static void ledsvc_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
+{
+	notify_en = (value == BT_GATT_CCC_NOTIFY);
 }
 
 static void adv_work_handler(struct k_work *work)
@@ -125,7 +150,8 @@ void on_connected(struct bt_conn *conn, uint8_t err)
 
 	double connection_interval = info.le.interval*1.25; // in ms
 	uint16_t supervision_timeout = info.le.timeout*10; // in ms
-	LOG_INF("Connection parameters: interval %.2f ms, latency %d intervals, timeout %d ms", connection_interval, info.le.latency, supervision_timeout);
+	uint16_t mtu = bt_gatt_get_mtu(conn);
+	LOG_INF("Connection parameters: interval %.2f ms, latency %d intervals, timeout %d ms, MTU: %d", connection_interval, info.le.latency, supervision_timeout, mtu);
 
     gpio_pin_set_dt(&led, 1);
 	led_state = 1;
@@ -149,7 +175,9 @@ void on_le_param_updated(struct bt_conn *conn, uint16_t interval, uint16_t laten
 {
     double connection_interval = interval*1.25;         // in ms
     uint16_t supervision_timeout = timeout*10;          // in ms
-    LOG_INF("Connection parameters updated: interval %.2f ms, latency %d intervals, timeout %d ms", connection_interval, latency, supervision_timeout);
+
+	uint16_t mtu = bt_gatt_get_mtu(conn);
+	LOG_INF("Connection parameters updated: interval %.2f ms, latency %d intervals, timeout %d ms, MTU: %d", connection_interval, latency, supervision_timeout, mtu);
 }
 
 struct bt_conn_cb connection_callbacks = {
@@ -158,6 +186,14 @@ struct bt_conn_cb connection_callbacks = {
     .recycled               = on_recycled,
 	.le_param_updated       = on_le_param_updated
 };
+
+static void tmr_isr(struct k_timer *timer_id)
+{
+	counter++;
+	// LOG_INF("count=%d", counter);
+}
+
+K_TIMER_DEFINE(my_timer, tmr_isr, NULL);
 
 static int init_led(void)
 {
@@ -198,11 +234,36 @@ static int init_bt(void)
 	return err;
 }
 
+BT_GATT_SERVICE_DEFINE(
+	led_svc, 
+	BT_GATT_PRIMARY_SERVICE(&led_svc_uuid),
+	BT_GATT_CHARACTERISTIC(	// led_state {attributes: 1,2}
+		&led_state_char_uuid.uuid,
+		BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+		BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+		read_led,
+		write_led,
+		&led_state
+	),
+	BT_GATT_CHARACTERISTIC(	// counter{3,4}
+		&counter_char_uuid.uuid,
+		BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
+		BT_GATT_PERM_READ,
+		read_count,
+		NULL,
+		&counter
+	),
+	BT_GATT_CCC(	// Client Characteristic Configuration {5}
+		ledsvc_ccc_cfg_changed,
+		BT_GATT_PERM_READ | BT_GATT_PERM_WRITE
+	),
+);
+
 int main(void)
 {
 	int err;
 
-	LOG_INF("Starting Lesson 3 - Exercise 1");
+	LOG_INF("Starting BLE_LED...");
 
 	err = init_led();
 	if (err) {
@@ -216,6 +277,7 @@ int main(void)
 		return -1;
 	}
 
+	k_timer_start(&my_timer, TMR_PERIOD, TMR_PERIOD);
 	while (1)
 	{
 		struct bt_conn_info info;
@@ -226,19 +288,10 @@ int main(void)
 			led_state ^= 1;	// invert the state (toggle)
 		}
 
-		k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
+		// send notifications
+		if (notify_en)
+			bt_gatt_notify(NULL, &led_svc.attrs[4], &counter, sizeof(counter));
+
+		k_sleep(RUN_LED_BLINK_INTERVAL);
 	}
 }
-
-BT_GATT_SERVICE_DEFINE(
-	led_svc, 
-	BT_GATT_PRIMARY_SERVICE(&led_svc_uuid),
-	BT_GATT_CHARACTERISTIC(
-		&led_state_char_uuid.uuid,
-		BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
-		BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-		read_led,
-		write_led,
-		&led_state
-	),
-);
