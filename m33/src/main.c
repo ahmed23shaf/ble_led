@@ -7,11 +7,12 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/drivers/gpio.h>
 
+#include <zephyr/logging/log.h>
+
+LOG_MODULE_REGISTER(main_,LOG_LEVEL_DBG);
+
 #define LED0_NODE DT_ALIAS(led0)
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
-
-// #define BUTTON_NODE DT_ALIAS(pb)
-// static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET_OR(BUTTON_NODE, gpios, {0});
 
 #define RUN_LED_BLINK_INTERVAL 1000
 
@@ -35,11 +36,11 @@ static void adv_work_handler(struct k_work *work)
 	int err = bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), NULL, 0);
 
 	if (err) {
-		printk("Advertising failed to start (err %d)\n", err);
+		LOG_ERR("Advertising failed to start (err %d)", err);
 		return;
 	}
 
-	printk("Advertising successfully started\n");
+	LOG_INF("Advertising successfully started");
 }
 
 static void advertising_start(void)
@@ -50,18 +51,29 @@ static void advertising_start(void)
 void on_connected(struct bt_conn *conn, uint8_t err)
 {
     if (err) {
-        printk("Connection error %d", err);
+        LOG_ERR("Connection error %d", err);
         return;
     }
-    printk("Connected\n");
+    LOG_INF("Connected");
     my_conn = bt_conn_ref(conn);
+
+	struct bt_conn_info info;
+	err = bt_conn_get_info(conn, &info);
+	if (err) {
+		LOG_ERR("bt_conn_get_info() returned %d", err);
+		return;
+	}
+
+	double connection_interval = info.le.interval*1.25; // in ms
+	uint16_t supervision_timeout = info.le.timeout*10; // in ms
+	LOG_INF("Connection parameters: interval %.2f ms, latency %d intervals, timeout %d ms", connection_interval, info.le.latency, supervision_timeout);
 
     gpio_pin_set_dt(&led, 1);
 }
 
 void on_disconnected(struct bt_conn *conn, uint8_t reason)
 {
-    printk("Disconnected. Reason %d\n", reason);
+    LOG_ERR("Disconnected. Reason %d", reason);
     bt_conn_unref(my_conn);
 
 	gpio_pin_set_dt(&led, 0);
@@ -72,10 +84,18 @@ void on_recycled(void)
     advertising_start();
 }
 
+void on_le_param_updated(struct bt_conn *conn, uint16_t interval, uint16_t latency, uint16_t timeout)
+{
+    double connection_interval = interval*1.25;         // in ms
+    uint16_t supervision_timeout = timeout*10;          // in ms
+    LOG_INF("Connection parameters updated: interval %.2f ms, latency %d intervals, timeout %d ms", connection_interval, latency, supervision_timeout);
+}
+
 struct bt_conn_cb connection_callbacks = {
     .connected              = on_connected,
     .disconnected           = on_disconnected,
     .recycled               = on_recycled,
+	.le_param_updated       = on_le_param_updated
 };
 
 static int init_led(void)
@@ -100,16 +120,16 @@ static int init_bt(void)
 
 	err = bt_conn_cb_register(&connection_callbacks);
 	if (err) {
-	printk("Connection callback register failed (err %d)\n", err);
+	LOG_INF("Connection callback register failed (err %d)", err);
 	}
 
 	err = bt_enable(NULL);
 	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
+		LOG_ERR("Bluetooth init failed (err %d)", err);
 		return -1;
 	}
 
-	printk("Bluetooth initialized\n");
+	LOG_INF("Bluetooth initialized");
 	k_work_init(&adv_work, adv_work_handler);
 	advertising_start();
 
@@ -120,17 +140,17 @@ int main(void)
 {
 	int err;
 
-	printk("Starting Lesson 3 - Exercise 1\n");
+	LOG_INF("Starting Lesson 3 - Exercise 1");
 
 	err = init_led();
 	if (err) {
-		printk("LEDs init failed (err %d)\n", err);
+		LOG_ERR("LEDs init failed (err %d)", err);
 		return -1;
 	}
 
 	err = init_bt();
 	if (err) {
-		printk("BT init failed (err %d)\n", err);
+		LOG_ERR("BT init failed (err %d)", err);
 		return -1;
 	}
 
